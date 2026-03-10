@@ -145,7 +145,7 @@ class InstrumentPanel(QtWidgets.QFrame):
 
 
 # -----------------------------
-# Baseline + Ct (instrument-like)  (kept for Excel / plot, UI shows averages only)
+# Baseline + Ct
 # -----------------------------
 @dataclass
 class BaselineFit:
@@ -217,7 +217,7 @@ def calc_ct(delta: List[float], threshold: float) -> Optional[float]:
         y1 = float(delta[i])
         if y0 < thr <= y1 and (y1 - y0) != 0:
             frac = (thr - y0) / (y1 - y0)
-            return (i) + frac
+            return i + frac
         if y0 == thr:
             return float(i)
     return None
@@ -367,16 +367,9 @@ class NormalMeasureTask:
 
 
 # -----------------------------
-# Excel FLUO plotter panel (used inside separate window)
+# Excel FLUO plotter
 # -----------------------------
 class ExcelFluoPlotPanel(QtWidgets.QWidget):
-    """
-    Load xlsx saved by this app and plot FLUO only.
-    - sheet select
-    - channel checkboxes
-    - smoothing (moving average)
-    - save png button
-    """
     def __init__(self, log_func, parent=None):
         super().__init__(parent)
         self._log = log_func
@@ -387,7 +380,6 @@ class ExcelFluoPlotPanel(QtWidgets.QWidget):
         lay.setContentsMargins(10, 10, 10, 10)
         lay.setSpacing(8)
 
-        # Controls
         row = QtWidgets.QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
@@ -425,7 +417,6 @@ class ExcelFluoPlotPanel(QtWidgets.QWidget):
         row.addWidget(self.sp_smooth)
         lay.addLayout(row)
 
-        # Plot
         self.plot = pg.PlotWidget(title="Excel FLUO (only)")
         self.plot.showGrid(x=True, y=True, alpha=0.3)
         self.plot.addLegend()
@@ -441,13 +432,12 @@ class ExcelFluoPlotPanel(QtWidgets.QWidget):
         ]
         self.curves: Dict[int, pg.PlotDataItem] = {}
         for ch in range(1, 5):
-            self.curves[ch] = self.plot.plot([], [], pen=pens[ch-1], name=f"CH{ch}")
+            self.curves[ch] = self.plot.plot([], [], pen=pens[ch - 1], name=f"CH{ch}")
 
         self.lbl_info = QtWidgets.QLabel("No file loaded.")
         self.lbl_info.setStyleSheet("color:#b9c3d6; font-weight:700;")
         lay.addWidget(self.lbl_info, 0)
 
-    # --- external API (MainWindow can call) ---
     def load_excel(self, path: str):
         if not path:
             return
@@ -512,12 +502,12 @@ class ExcelFluoPlotPanel(QtWidgets.QWidget):
         cols = set(df.columns.astype(str))
 
         y_candidates = [
-            "fluo_mv",              # RECORD
-            "fluo_avg_mv",          # NORMAL_MEASURE
-            "light_fluo_mean_mv",   # QPCR
-            "dark_fluo_mean_mv",    # QPCR (fallback)
-            "R_light_minus_dark",   # QPCR (related)
-            "delta",                # QPCR delta (fallback)
+            "fluo_mv",
+            "fluo_avg_mv",
+            "light_fluo_mean_mv",
+            "dark_fluo_mean_mv",
+            "R_light_minus_dark",
+            "delta",
         ]
         ycol = None
         for c in y_candidates:
@@ -537,9 +527,9 @@ class ExcelFluoPlotPanel(QtWidgets.QWidget):
             ycol = str(num_cols[0])
 
         x_candidates = [
-            "record_t_rel_s",  # RECORD
-            "t_rel_s",         # QPCR
-            "cycle",           # QPCR
+            "record_t_rel_s",
+            "t_rel_s",
+            "cycle",
             "tick_ms",
         ]
         xcol = None
@@ -613,7 +603,6 @@ class ExcelFluoPlotPanel(QtWidgets.QWidget):
 
 
 class ExcelFluoPlotWindow(QtWidgets.QWidget):
-    """Separate window for Excel FLUO plot."""
     def __init__(self, log_func, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Excel FLUO Plot (Saved xlsx)")
@@ -643,6 +632,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.worker: Optional[SerialWorker] = None
         self.cmd_sched = CommandScheduler(self._send_immediate, min_gap_ms=25)
 
+        # external pwm driver state
+        self.extdrv_en = 0
+        self.extdrv_duty = 0
+
         # realtime buffers
         self.win_points = 600
         self.x = list(range(self.win_points))
@@ -670,7 +663,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.capture_hz = 5
         self._last_save_epoch = [0.0, 0.0, 0.0, 0.0]
 
-        # ✅ RECORD running average (display averages only)
+        # RECORD running average
         self.record_acc_n = [0, 0, 0, 0]
         self.record_acc_mon = [0.0, 0.0, 0.0, 0.0]
         self.record_acc_fluo = [0.0, 0.0, 0.0, 0.0]
@@ -678,7 +671,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.lbl_rec_mon_avg: List[QtWidgets.QLabel] = []
         self.lbl_rec_fluo_avg: List[QtWidgets.QLabel] = []
 
-        # ---- QPCR state machine ----
+        # QPCR state machine
         self.qpcr_running = False
         self.qpcr_t0 = 0.0
         self.qpcr_cycle_idx = 0
@@ -701,13 +694,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.qpcr_plot_curve: Dict[int, pg.PlotDataItem] = {}
         self.qpcr_thr_line: Dict[int, pg.InfiniteLine] = {}
 
-        # ✅ QPCR averages display label per channel (D/L/R/M means)
         self.lbl_qp_avg: List[QtWidgets.QLabel] = []
 
-        # NORMAL measure tasks (concurrent)
+        # NORMAL measure tasks
         self.meas_tasks: Dict[int, NormalMeasureTask] = {}
 
-        # Excel plot window (separate)
+        # Excel plot window
         self.excel_win: Optional[ExcelFluoPlotWindow] = None
 
         # timers
@@ -805,7 +797,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 color: #d6def2;
             }
 
-            /* ✅ Port/Mode 패널만 글자 더 작게 */
             QFrame#pnl_port QLabel[panelTitleLabel="1"],
             QFrame#pnl_mode QLabel[panelTitleLabel="1"],
             QFrame#pnl_port QToolButton[panelTitle="1"],
@@ -814,13 +805,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 font-weight: 800;
             }
 
-            /* ✅ Port/Mode 패널 내부 컨트롤(라벨/콤보/버튼 등) 폰트 축소 */
             QFrame#pnl_port QWidget,
             QFrame#pnl_mode QWidget {
                 font-size: 9pt;
             }
 
-            /* Mode 패널의 큰 버튼(Record/QPCR)도 같이 축소 */
             QFrame#pnl_mode QPushButton#btn_record,
             QFrame#pnl_mode QPushButton#btn_qpcr {
                 font-size: 9pt;
@@ -848,7 +837,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pnl_port = InstrumentPanel("Port:", collapsible=False)
         self.pnl_mode = InstrumentPanel("Mode:", collapsible=False)
 
-        # ✅ QSS target
         self.pnl_port.setObjectName("pnl_port")
         self.pnl_mode.setObjectName("pnl_mode")
 
@@ -912,7 +900,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_save_excel = QtWidgets.QPushButton("Save Excel")
         self.btn_save_excel.clicked.connect(self._save_excel)
 
-        # Excel plot separate window open button
         self.btn_excel_plot = QtWidgets.QPushButton("Excel Plot")
         self.btn_excel_plot.clicked.connect(self._open_excel_plot_window)
 
@@ -933,6 +920,100 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.pnl_port.setMaximumHeight(115)
         self.pnl_mode.setMaximumHeight(115)
+
+        # =========================
+        # Row 1.5: External PWM Driver
+        # =========================
+        self.pnl_extdrv = InstrumentPanel("External PWM Driver", collapsible=False)
+        root.addWidget(self.pnl_extdrv, 0)
+
+        ext_row1 = QtWidgets.QHBoxLayout()
+        ext_row1.setContentsMargins(0, 0, 0, 0)
+        ext_row1.setSpacing(8)
+
+        self.btn_extdrv_on = QtWidgets.QPushButton("OFF")
+        self.btn_extdrv_on.setCheckable(True)
+        self.btn_extdrv_on.clicked.connect(self._cmd_extdrv_enable)
+
+        self.btn_extdrv_refresh = QtWidgets.QPushButton("Read Status")
+        self.btn_extdrv_refresh.clicked.connect(self._cmd_extdrv_refresh)
+
+        self.sl_extdrv = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.sl_extdrv.setRange(0, 1000)
+        self.sl_extdrv.setValue(0)
+
+        self.sp_extdrv = QtWidgets.QSpinBox()
+        self.sp_extdrv.setRange(0, 1000)
+        self.sp_extdrv.setValue(0)
+        self.sp_extdrv.setFixedWidth(100)
+
+        self.lbl_extdrv_en = QtWidgets.QLabel("0")
+        self.lbl_extdrv_en.setStyleSheet("color:#ffb74d; font-weight:800;")
+
+        self.lbl_extdrv_duty = QtWidgets.QLabel("0")
+        self.lbl_extdrv_duty.setStyleSheet("color:#81c784; font-weight:800;")
+
+        def apply_extdrv_from_ui(v: int):
+            v = max(0, min(1000, int(v)))
+            self.sl_extdrv.blockSignals(True)
+            self.sp_extdrv.blockSignals(True)
+            self.sl_extdrv.setValue(v)
+            self.sp_extdrv.setValue(v)
+            self.sl_extdrv.blockSignals(False)
+            self.sp_extdrv.blockSignals(False)
+            self._cmd_extdrv_duty(v)
+
+        self.sl_extdrv.valueChanged.connect(apply_extdrv_from_ui)
+        self.sp_extdrv.valueChanged.connect(apply_extdrv_from_ui)
+
+        ext_row1.addWidget(QtWidgets.QLabel("Enable"))
+        ext_row1.addWidget(self.btn_extdrv_on)
+
+        ext_row1.addSpacing(10)
+        ext_row1.addWidget(QtWidgets.QLabel("Duty (0~1000)"))
+        ext_row1.addWidget(self.sl_extdrv, 1)
+        ext_row1.addWidget(self.sp_extdrv, 0)
+
+        ext_row1.addSpacing(10)
+        ext_row1.addWidget(self.btn_extdrv_refresh)
+
+        ext_row1.addSpacing(10)
+        ext_row1.addWidget(QtWidgets.QLabel("EN"))
+        ext_row1.addWidget(self.lbl_extdrv_en)
+        ext_row1.addWidget(QtWidgets.QLabel("DUTY"))
+        ext_row1.addWidget(self.lbl_extdrv_duty)
+
+        # quick percentage buttons
+        ext_row2 = QtWidgets.QHBoxLayout()
+        ext_row2.setContentsMargins(0, 0, 0, 0)
+        ext_row2.setSpacing(8)
+
+        self.btn_extdrv_pct_5 = QtWidgets.QPushButton("5%")
+        self.btn_extdrv_pct_10 = QtWidgets.QPushButton("10%")
+        self.btn_extdrv_pct_25 = QtWidgets.QPushButton("25%")
+        self.btn_extdrv_pct_50 = QtWidgets.QPushButton("50%")
+        self.btn_extdrv_pct_75 = QtWidgets.QPushButton("75%")
+        self.btn_extdrv_pct_100 = QtWidgets.QPushButton("100%")
+
+        self.btn_extdrv_pct_5.clicked.connect(lambda _: self._cmd_extdrv_percent(5))
+        self.btn_extdrv_pct_10.clicked.connect(lambda _: self._cmd_extdrv_percent(10))
+        self.btn_extdrv_pct_25.clicked.connect(lambda _: self._cmd_extdrv_percent(25))
+        self.btn_extdrv_pct_50.clicked.connect(lambda _: self._cmd_extdrv_percent(50))
+        self.btn_extdrv_pct_75.clicked.connect(lambda _: self._cmd_extdrv_percent(75))
+        self.btn_extdrv_pct_100.clicked.connect(lambda _: self._cmd_extdrv_percent(100))
+
+        ext_row2.addWidget(QtWidgets.QLabel("Quick Set"))
+        ext_row2.addWidget(self.btn_extdrv_pct_5)
+        ext_row2.addWidget(self.btn_extdrv_pct_10)
+        ext_row2.addWidget(self.btn_extdrv_pct_25)
+        ext_row2.addWidget(self.btn_extdrv_pct_50)
+        ext_row2.addWidget(self.btn_extdrv_pct_75)
+        ext_row2.addWidget(self.btn_extdrv_pct_100)
+        ext_row2.addStretch(1)
+
+        self.pnl_extdrv.content_l.addLayout(ext_row1)
+        self.pnl_extdrv.content_l.addLayout(ext_row2)
+        self.pnl_extdrv.setMaximumHeight(150)
 
         # =========================
         # Row 2: Normal Measure
@@ -965,7 +1046,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.pnl_normal.content_l.addLayout(meas_row)
 
-        # Channel grid
         grid_widget = QtWidgets.QWidget()
         grid = QtWidgets.QGridLayout(grid_widget)
         grid.setContentsMargins(0, 0, 0, 0)
@@ -1167,7 +1247,6 @@ class MainWindow(QtWidgets.QMainWindow):
         cap_row.addStretch(1)
         self.pnl_stream.content_l.addLayout(cap_row)
 
-        # ✅ RECORD 평균 요약(채널별): Samples / MON_AVG / FLUO_AVG
         rec_sum_group = QtWidgets.QWidget()
         rec_sum = QtWidgets.QGridLayout(rec_sum_group)
         rec_sum.setContentsMargins(0, 0, 0, 0)
@@ -1205,7 +1284,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.pnl_stream.content_l.addWidget(rec_sum_group)
 
-        # schedule table
         sch_group = QtWidgets.QWidget()
         sch_layout = QtWidgets.QGridLayout(sch_group)
         sch_layout.setContentsMargins(0, 0, 0, 0)
@@ -1398,13 +1476,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.pnl_qpcr.content_l.addLayout(opt)
 
-        # panel heights
         self.pnl_normal.setMaximumHeight(420)
         self.pnl_stream.setMaximumHeight(520)
         self.pnl_qpcr.setMaximumHeight(420)
 
         # =========================
-        # Row 5: Realtime Graph + Log (MON + FLUO only)
+        # Row 5: Realtime Graph + Log
         # =========================
         self.pnl_graph = InstrumentPanel("Graph (Realtime)", collapsible=False)
         root.addWidget(self.pnl_graph, 10)
@@ -1455,7 +1532,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.pnl_graph.content_l.addWidget(split, 1)
 
-    # ---------------- excel plot window ----------------
+    # ---------------- Excel plot window ----------------
     def _open_excel_plot_window(self):
         if self.excel_win is None:
             self.excel_win = ExcelFluoPlotWindow(self._log)
@@ -1512,6 +1589,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._queue(f"SET DARK {1 if self.cb_dark.isChecked() else 0}")
             self._queue("LEDMASK 15")
             self._queue("LEDS 15 0")
+            self._queue("EXTSTAT")
 
     def _send_immediate(self, s: str):
         if self.worker and self.worker.isRunning():
@@ -1587,6 +1665,62 @@ class MainWindow(QtWidgets.QMainWindow):
             self.btn_qpcr.setChecked(False)
             self._toggle_qpcr()
         self._normal_measure_stop_all()
+
+    # ---------------- external pwm driver ----------------
+    def _set_extdrv_ui(self, en: Optional[int] = None, duty: Optional[int] = None):
+        if en is not None:
+            en = 1 if int(en) else 0
+            self.extdrv_en = en
+            self.btn_extdrv_on.blockSignals(True)
+            self.btn_extdrv_on.setChecked(bool(en))
+            self.btn_extdrv_on.setText("ON" if en else "OFF")
+            self.btn_extdrv_on.blockSignals(False)
+            self.lbl_extdrv_en.setText(str(en))
+
+        if duty is not None:
+            duty = max(0, min(1000, int(duty)))
+            self.extdrv_duty = duty
+            self.sl_extdrv.blockSignals(True)
+            self.sp_extdrv.blockSignals(True)
+            self.sl_extdrv.setValue(duty)
+            self.sp_extdrv.setValue(duty)
+            self.sl_extdrv.blockSignals(False)
+            self.sp_extdrv.blockSignals(False)
+            self.lbl_extdrv_duty.setText(str(duty))
+
+    def _cmd_extdrv_enable(self, checked: bool):
+        en = 1 if checked else 0
+        duty = int(self.sp_extdrv.value())
+        self._set_extdrv_ui(en=en, duty=duty)
+        self._queue(f"EXTSET {en} {duty}")
+
+    def _cmd_extdrv_duty(self, duty: int):
+        duty = max(0, min(1000, int(duty)))
+        en = 1 if self.btn_extdrv_on.isChecked() else 0
+        self._set_extdrv_ui(en=en, duty=duty)
+        self._queue(f"EXTSET {en} {duty}")
+
+    def _cmd_extdrv_percent(self, pct: int):
+        pct = max(0, min(100, int(pct)))
+        duty = int(round(pct * 10))  # 5% -> 50, 100% -> 1000
+        en = 1
+        self._set_extdrv_ui(en=en, duty=duty)
+        self._queue(f"EXTSET {en} {duty}")
+        self._log(f"EXTDRV QUICK SET: {pct}% (DUTY={duty})")
+
+    def _cmd_extdrv_refresh(self):
+        self._queue("EXTSTAT")
+
+    def _handle_extdrv_line(self, s: str):
+        try:
+            payload = s[len("R,EXTDRV,"):]
+            kv = parse_kv_payload(payload)
+            en = safe_int(kv, "EN", 0)
+            duty = safe_int(kv, "DUTY", 0)
+            self._set_extdrv_ui(en=en, duty=duty)
+            self._log(f"EXTDRV STATUS: EN={en}, DUTY={duty}")
+        except Exception as e:
+            self._log(f"EXTDRV parse error: {e} | {s}")
 
     # ---------------- commands (NORMAL manual) ----------------
     def _cmd_led(self, ch: int, on: bool):
@@ -1779,7 +1913,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.record_rows.clear()
             self.record_t0 = time.time()
 
-            # ✅ reset averages
             self.record_acc_n = [0, 0, 0, 0]
             self.record_acc_mon = [0.0, 0.0, 0.0, 0.0]
             self.record_acc_fluo = [0.0, 0.0, 0.0, 0.0]
@@ -2120,7 +2253,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 mon_mean = sum(self.qpcr_mon_samples[ch]) / max(1, len(self.qpcr_mon_samples[ch])) if self.qpcr_mon_samples[ch] else 0.0
                 R = float(light_mean - dark_mean)
 
-                # ✅ UI: averages only
                 self.lbl_qp_avg[ch - 1].setText(f"D{dark_mean:.1f} L{light_mean:.1f} R{R:.1f} M{mon_mean:.1f}")
 
                 self.qpcr_R[ch].append(R)
@@ -2171,6 +2303,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_line(self, s: str):
         if s.startswith("S,CH,"):
             self._handle_stream_line(s)
+        elif s.startswith("R,EXTDRV,"):
+            self._handle_extdrv_line(s)
         else:
             self._log(f"RX: {s}")
 
@@ -2236,7 +2370,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 "sched_duration_s": sch.duration_s,
             })
 
-            # ✅ running average update (display averages only)
             idx = fr.ch - 1
             self.record_acc_n[idx] += 1
             self.record_acc_mon[idx] += float(fr.mon_mv)
@@ -2276,12 +2409,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._log(f"Saved: {path}")
 
-        # open Excel plot window and auto load
         self._open_excel_plot_window()
         if self.excel_win is not None:
             self.excel_win.load_excel(path)
 
-    # ---------------- plot refresh (realtime) ----------------
+    # ---------------- plot refresh ----------------
     def _refresh_plots(self):
         for i in range(4):
             self.cur_mon[i].setData(self.x, list(self.buf_mon_mv[i]))
